@@ -40,6 +40,18 @@ my %argspec0_files__cbz = (
     },
 );
 
+my %argspec0_files__cbr = (
+    files => {
+        schema => ['array*', of=>'filename*', min_len=>1,
+                   #uniq=>1, # not yet implemented by Data::Sah
+               ],
+        req => 1,
+        pos => 0,
+        slurpy => 1,
+        'x.element_completion' => [filename => {filter => sub { /\.cbr$/i }}],
+    },
+);
+
 our %argspecopt_overwrite = (
     overwrite => {
         schema => 'bool*',
@@ -107,8 +119,8 @@ sub convert_epub_to_pdf {
     $envres->as_struct;
 }
 
-sub _convert_cbz_to_pdf_single {
-    my ($input_file, $output_file) = @_;
+sub _convert_cbx_to_pdf_single {
+    my ($which, $input_file, $output_file) = @_;
 
     log_debug("Creating temporary directory ...");
     require File::Temp;
@@ -123,7 +135,13 @@ sub _convert_cbz_to_pdf_single {
 
     log_debug("Extracting $abs_input_file ...");
     local $CWD = $tempdir;
-    system("unzip", $abs_input_file);
+    if ($which eq 'cbz') {
+        system("unzip", $abs_input_file);
+    } elsif ($which eq 'cbr') {
+        system("unrar", "e", $abs_input_file);
+    } else {
+        return [412, "Unknown extension '$which': must be cbz/cbr"];
+    }
     my $exit_code = $? < 0 ? $? : $? >> 8;
     return [500, "Can't unzip $abs_input_file ($exit_code): $!"]
         if $exit_code;
@@ -206,7 +224,66 @@ sub convert_cbz_to_pdf {
             }
         }
 
-        my $convert_res = _convert_cbz_to_pdf_single($input_file, $output_file);
+        my $convert_res = _convert_cbx_to_pdf_single("cbz", $input_file, $output_file);
+        if ($convert_res->[0] != 200) {
+            $envres->add_result($convert_res->[0], "Can't convert return successfully, $convert_res->[0] - $convert_res->[1]", {item_id=>$input_file});
+        } else {
+            $envres->add_result(200, "OK", {item_id=>$input_file});
+        }
+    } # for $input_file
+
+    $envres->as_struct;
+}
+
+$SPEC{convert_cbr_to_pdf} = {
+    v => 1.1,
+    summary => 'Convert cbr file to PDF',
+    description => <<'MARKDOWN',
+
+MARKDOWN
+    args => {
+        %argspec0_files__cbr,
+        %argspecopt_overwrite,
+    },
+    deps => {
+        all => [
+            {prog => 'unrar'},
+            {prog => 'pdftk'},
+            {prog => 'convert'},
+        ],
+    },
+};
+sub convert_cbr_to_pdf {
+    my %args = @_;
+
+    my $envres = envresmulti();
+
+    my $i = 0;
+    for my $input_file (@{ $args{files} }) {
+        log_info "[%d/%d] Processing file %s ...", ++$i, scalar(@{ $args{files} }), $input_file;
+        $input_file =~ /(.+)\.(\w+)\z/ or do {
+            $envres->add_result(412, "Please supply input file with extension in its name (e.g. foo.cbr instead of foo)", {item_id=>$input_file});
+            next;
+        };
+        my ($name, $ext) = ($1, $2);
+        $ext =~ /\Acbr\z/i or do {
+            $envres->add_result(412, "Input file '$input_file' does not have .cbr extension", {item_id=>$input_file});
+            next;
+        };
+
+        my $output_file = "$input_file.pdf";
+
+        if (-e $output_file) {
+            if ($args{overwrite}) {
+                log_info "Unlinking existing PDF file %s ...", $output_file;
+                unlink $output_file;
+            } else {
+                $envres->add_result(412, "Output file '$output_file' already exists, not overwriting (use --overwrite (-O) to overwrite)", {item_id=>$input_file});
+                next;
+            }
+        }
+
+        my $convert_res = _convert_cbx_to_pdf_single("cbr", $input_file, $output_file);
         if ($convert_res->[0] != 200) {
             $envres->add_result($convert_res->[0], "Can't convert return successfully, $convert_res->[0] - $convert_res->[1]", {item_id=>$input_file});
         } else {

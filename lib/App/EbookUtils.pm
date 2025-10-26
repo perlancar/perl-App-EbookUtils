@@ -122,7 +122,7 @@ sub convert_epub_to_pdf {
 sub _convert_cbx_to_pdf_single {
     my ($which, $input_file, $output_file) = @_;
 
-    log_debug("Creating temporary directory ...");
+    log_info("Creating temporary directory ...");
     require File::Temp;
     my $tempdir = File::Temp::tempdir(CLEANUP => log_is_debug() ? 0:1);
     log_debug("Temporary directory is $tempdir");
@@ -133,7 +133,7 @@ sub _convert_cbx_to_pdf_single {
     my $abs_output_file = Cwd::abs_path($output_file)
         or return [500, "Can't get absolute path of output file '$output_file'"];
 
-    log_debug("Extracting $abs_input_file ...");
+    log_info("Extracting $abs_input_file ...");
     local $CWD = $tempdir;
     if ($which eq 'cbz') {
         system("unzip", $abs_input_file);
@@ -146,14 +146,14 @@ sub _convert_cbx_to_pdf_single {
     return [500, "Can't unzip $abs_input_file ($exit_code): $!"]
         if $exit_code;
 
-    log_debug("Converting images to PDFs ...");
+    log_info("Converting images to PDFs ...");
     my @input_img_files = glob "*";
     my @input_pdf_files;
     my $num_files = @input_img_files;
     my $i = 0;
     for my $file (@input_img_files) {
         $i++;
-        log_debug "[#%d/%d] Processing %s ...", $i, $num_files, $file;
+        log_info "[#%d/%d] Processing %s ...", $i, $num_files, $file;
         unless (-f $file) {
             log_warn "Found a non-regular file inside $input_file: $file, skipped";
             next;
@@ -167,7 +167,7 @@ sub _convert_cbx_to_pdf_single {
         push @input_pdf_files, "$file.pdf";
     }
 
-    log_debug "Combining all PDFs into a single one ...";
+    log_info "Combining all PDFs into a single one ...";
     system "pdftk", @input_pdf_files, "cat", "output", $abs_output_file;
     $exit_code = $? < 0 ? $? : $? >> 8;
     return [500, "Can't combine PDFs into a single one ($exit_code): $!"]
